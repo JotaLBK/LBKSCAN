@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+
+import socket
+import argparse
+import time
+import threading
+import sys
+from colorama import Fore, Style, init
+from tqdm import tqdm
+
+# Inicializa o Colorama
+init(autoreset=True)
+
+COMMON_PORTS = {
+    20: 'FTP Data',
+    21: 'FTP Control',
+    22: 'SSH',
+    23: 'Telnet',
+    25: 'SMTP',
+    53: 'DNS',
+    80: 'HTTP',
+    110: 'POP3',
+    143: 'IMAP',
+    443: 'HTTPS',
+    3306: 'MySQL',
+    3389: 'RDP',
+    8080: 'HTTP Alt',
+    8443: 'HTTPS Alt',
+    5900: 'VNC',
+    123: 'NTP'
+}
+
+COMMON_SCAN_PORTS = list(COMMON_PORTS.keys())
+
+open_ports = []
+
+def banner():
+    print(Fore.BLUE + r"""
+██╗░░░░░██████╗░██╗░░██╗  ░██████╗░█████╗░░█████╗░███╗░░██╗
+██║░░░░░██╔══██╗██║░██╔╝  ██╔════╝██╔══██╗██╔══██╗████╗░██║
+██║░░░░░██████╦╝█████═╝░  ╚█████╗░██║░░╚═╝███████║██╔██╗██║
+██║░░░░░██╔══██╗██╔═██╗░  ░╚═══██╗██║░░██╗██╔══██║██║╚████║
+███████╗██████╦╝██║░╚██╗  ██████╔╝╚█████╔╝██║░░██║██║░╚███║
+╚══════╝╚═════╝░╚═╝░░╚═╝  ╚═════╝░░╚════╝░╚═╝░░╚═╝╚═╝░░╚══╝             LBK SCAN - Port Scanner
+""" + Style.RESET_ALL)
+
+def get_service(port):
+    return COMMON_PORTS.get(port, 'Serviço desconhecido')
+
+def grab_banner(host, port):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            s.connect((host, port))
+            try:
+                if port == 80 or port == 8080:
+                    s.sendall(b"HEAD / HTTP/1.0\r\n\r\n")
+                banner = s.recv(1024)
+                return banner.decode(errors="ignore").strip()
+            except:
+                return None
+    except:
+        return None
+
+def scan_port(host, port, pbar):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            result = s.connect_ex((host, port))
+            if result == 0:
+                service = get_service(port)
+                banner_info = grab_banner(host, port)
+                open_ports.append(port)
+                print(Fore.GREEN + f"[+] Porta {port}/TCP aberta ({service})")
+                if banner_info:
+                    print(Fore.CYAN + f"    [>] Banner: {banner_info}")
+    except:
+        pass
+    finally:
+        pbar.update(1)
+
+def main():
+    banner()
+
+    parser = argparse.ArgumentParser(description="LBK SCAN - Port Scanner com scan de portas comuns")
+    parser.add_argument("host", help="IP ou domínio do alvo")
+    parser.add_argument("--common", action='store_true', help="Escanear apenas portas comuns")
+    parser.add_argument("start_port", nargs='?', type=int, help="Porta inicial")
+    parser.add_argument("end_port", nargs='?', type=int, help="Porta final")
+    args = parser.parse_args()
+
+    # Validação de argumentos com mensagem clara
+    if not args.common and (args.start_port is None or args.end_port is None):
+        print(Fore.RED + "[!] Uso incorreto!\n")
+        print(Fore.CYAN + "Exemplo de uso: ")
+        print(Fore.YELLOW + "    ./lbkscan <host> <porta_inicial> <porta_final>")
+        print(Fore.YELLOW + "    ./lbkscan <host> --common\n")
+        sys.exit(1)
+
+    if args.common:
+        ports = COMMON_SCAN_PORTS
+        print(Fore.CYAN + f"[*] Escaneando {args.host} nas portas comuns...\n")
+    else:
+        ports = list(range(args.start_port, args.end_port + 1))
+        print(Fore.CYAN + f"[*] Escaneando {args.host} da porta {args.start_port} até {args.end_port}...\n")
+
+    start_time = time.time()
+
+    total_ports = len(ports)
+    pbar = tqdm(total=total_ports, desc="Progresso", unit="portas")
+
+    threads = []
+
+    for port in ports:
+        t = threading.Thread(target=scan_port, args=(args.host, port, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    pbar.close()
+
+    end_time = time.time()
+    elapsed = end_time - start_time
+
+    if not open_ports:
+        print(Fore.RED + "\n[!] Nenhuma porta aberta encontrada.")
+    
+    print(Fore.YELLOW + f"\n[!] Scan concluído em {elapsed:.2f} segundos.")
+
+if __name__ == "__main__":
+    main()
+
